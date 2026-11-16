@@ -1,9 +1,40 @@
-# Guia de deploy (preparado, NÃO executado)
+# Guia de deploy
 
-Nada aqui foi aplicado: nenhuma conta foi criada, nenhum serviço configurado e nada foi publicado. Este guia
-descreve o que **você** precisaria autorizar e fazer, e os limites que impedem o monitoramento contínuo no
-plano gratuito. Números abaixo vieram das páginas oficiais em 2026-11-16; planos gratuitos mudam, então
-**confirme antes de depender deles**.
+## Estado atual (2026-11-16): no ar, em plano gratuito
+
+| Peça     | Onde                                         |
+| -------- | -------------------------------------------- |
+| Frontend | Cloudflare Pages: `pulseops-cq4.pages.dev`   |
+| API      | Render (free): `pulseops-api-rnxg`           |
+| Banco    | Neon (free), migrações aplicadas             |
+| Worker   | GitHub Actions (`worker.yml`), a cada 15 min |
+
+Verificado em produção pelo Pages: cadastro, cookie `HttpOnly; Secure; SameSite=Strict`, renovação de sessão,
+criação de monitor, bloqueio de SSRF, limite de login com o IP real (10x 401 e 4x 429) e um check real feito
+pelo worker (`UP`, HTTP 200).
+
+### Como publicar o frontend de novo
+
+O projeto Pages **não está ligado ao Git**: um push não atualiza o site. Da raiz do repositório:
+
+```powershell
+npm run build -w @pulseops/web
+npx wrangler@4 pages deploy apps/web/dist --project-name pulseops --branch main
+```
+
+`API_ORIGIN` e `PROXY_SHARED_SECRET` estão como secrets do projeto Pages (`wrangler pages secret put`). A pasta
+`functions/` é publicada junto.
+
+### Cron do GitHub Actions não é garantido
+
+O agendamento (`7,22,37,52 * * * *`) atrasa ou pula execuções em repositórios públicos. No primeiro dia, a
+execução das :07 não veio; disparar manualmente (`workflow_dispatch`) funciona. Os checks podem sair com atraso
+de dezenas de minutos; para pontualidade seria preciso outro agendador.
+
+---
+
+O restante deste guia foi escrito **antes** do deploy e fica como referência de limites e passos. Números vieram
+das páginas oficiais em 2026-11-16; planos gratuitos mudam, então **confirme antes de depender deles**.
 
 ## Decisões tomadas
 
@@ -12,8 +43,7 @@ plano gratuito. Números abaixo vieram das páginas oficiais em 2026-11-16; plan
 - **Repositório público:** minutos do GitHub Actions gratuitos. O código fica visível; segredos ficam apenas
   nos Secrets/painéis. Antes de publicar, foi feita uma varredura: nenhum segredo, e-mail ou caminho pessoal
   nos arquivos versionáveis, e `.env`, `node_modules`, `dist` e o client gerado estão no `.gitignore`.
-- Um repositório público sem licença **não concede direitos de uso a terceiros** (todos os direitos reservados).
-  Escolha uma licença (ex.: MIT) se quiser permitir reuso; nenhuma foi adicionada.
+- **Licença: MIT** (arquivo `LICENSE`, em nome de `Thiago-tods`).
 
 ## Arquitetura de hospedagem (custo zero)
 
@@ -166,14 +196,19 @@ forjado e sem o segredo, cai no cálculo por `TRUST_PROXY=3` e não burla o limi
 O segredo (`PROXY_SHARED_SECRET`) precisa ser **igual** no Render e no Cloudflare Pages (Secret). Para trocá-lo,
 altere os dois e faça o deploy; durante a troca o IP volta ao cálculo por `TRUST_PROXY` (sem derrubar o serviço).
 
-## Incertezas que só o deploy real resolve
+## Incertezas: o que o deploy real resolveu
 
-- **Node 26 no Render.** Não confirmei que o Render oferece a versão 26.13.0. Se não oferecer, será preciso usar
-  outra versão (o projeto só foi testado no Node 26; `engines` aceita `>=24`, não testado).
-- **`TRUST_PROXY` com o proxy do Cloudflare Pages:** medido apenas para acesso direto ao Render (3). Com o Pages na
-  frente a cadeia muda; ver a seção do achado acima.
+Resolvido em 2026-11-16:
+
+- **Node 26 no Render:** o serviço compila e roda com `NODE_VERSION=26.13.0`.
+- **`TRUST_PROXY` com o Pages:** o IP real chega pelo cabeçalho assinado com `PROXY_SHARED_SECRET`; medido pelo
+  Pages (10x 401 e 4x 429 em 14 tentativas paralelas).
+- **Cookie `Secure` em HTTPS:** verificado em produção (`HttpOnly; Secure; SameSite=Strict`, sessão renovada).
+- **Function no Cloudflare:** funciona na plataforma real (proxy, 404 fora de `/api/v1`, cabeçalhos de segurança).
+
+Ainda em aberto:
+
 - **Neon pooled vs. direto:** usamos a conexão direta. Não validei o adapter do Prisma contra o pooler.
-- **CPU de 10 ms por requisição** da Function: o proxy faz pouco trabalho de CPU, mas não foi medido no
-  Cloudflare.
-- **Cookie `Secure` e HTTPS:** só foi testado localmente (HTTP). O comportamento em HTTPS real é esperado, mas
-  não verificado.
+- **CPU de 10 ms por requisição** da Function: sem falhas observadas, mas não medido.
+- **Papel do banco:** o app usa `neondb_owner` (privilégios amplos). Um papel restrito é uma melhoria futura.
+- **Pontualidade do cron:** ver o aviso no topo.
