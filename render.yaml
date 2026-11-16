@@ -25,7 +25,7 @@ services:
       - key: LOG_LEVEL
         value: info
       - key: TRUST_PROXY
-        value: 2 # proxy do Render + Cloudflare (ver docs/DEPLOYMENT.md antes de alterar)
+        value: 3 # medido no Render: proxy local + balanceador + Cloudflare (docs/DEPLOYMENT.md)
       - key: DB_POOL_MAX
         value: 3
       - key: MIN_MONITOR_INTERVAL_SEC

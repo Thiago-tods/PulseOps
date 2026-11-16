@@ -36,7 +36,7 @@
 - Proxy do Cloudflare Pages: só `/api/v1/*`, métodos limitados, corpo de até 1 MiB, descarta cabeçalhos de IP forjados (`x-forwarded-for`, `x-real-ip`, `forwarded`...) e define o IP real a partir de `cf-connecting-ip`; erros viram 502 genérico.
 - Cabeçalhos do frontend (`_headers`): CSP restritiva (sem scripts/estilos inline), HSTS, `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy`, `Permissions-Policy`. Verificada no navegador sem violações.
 - Health: `/health` (liveness, sem banco) e `/health/ready` (readiness; 503 genérico se o banco falhar).
-- **Pendente (achado no 1º deploy):** o limite de login não funcionava atrás do Render com `TRUST_PROXY=2`; ver `docs/DEPLOYMENT.md`. O limitador agora tem testes próprios.
+- **Corrigido e verificado em produção:** o limite de login não funcionava atrás do Render com `TRUST_PROXY=2` (IP da Cloudflare instável); com `TRUST_PROXY=3` identifica o IP real e não é burlado por `X-Forwarded-For` forjado. O limitador tem testes próprios. **Pendente:** cabeçalho de IP com segredo compartilhado para o proxy do Cloudflare Pages.
 - Pendente de validação no deploy real: `TRUST_PROXY`, comportamento do cookie `Secure` em HTTPS. Ver `docs/DEPLOYMENT.md`.
 
 ## Planejado (não implementado)

@@ -130,25 +130,43 @@ aplicam em um banco novo e os testes com banco (e2e da API e integração do wor
 **Ainda não executado:** o workflow `worker.yml` (depende do secret `DATABASE_URL`; sem ele só emite um aviso)
 e todos os serviços de nuvem.
 
-## Achado no primeiro deploy (Render, 2026-11-16)
+## Achado no primeiro deploy (Render, 2026-11-16): limite de login
 
 A API subiu e passou nos testes de fumaça (saúde, banco, cadastro, cookie `HttpOnly; Secure; SameSite=Strict`,
-rotação de refresh, SSRF, intervalo mínimo). **Mas o limite de tentativas de login não bloqueava**: 14 tentativas
-em paralelo retornaram todas 401, sem nenhum 429, inclusive com `X-Forwarded-For` forjado. Localmente o mesmo teste
-dá 10×401 e 4×429. Conclusão: com `TRUST_PROXY=2` a API não identifica um IP estável do cliente atrás do Render
-(a chave do limitador varia por requisição). Os testes automatizados não pegaram porque desligam o limitador.
+rotação de refresh, SSRF, intervalo mínimo). **Mas o limite de tentativas de login não bloqueava** com
+`TRUST_PROXY=2`: 14 tentativas em paralelo retornaram todas 401, sem nenhum 429. Os testes automatizados não pegaram
+porque desligam o limitador.
 
-Resposta: o limitador agora tem testes próprios (`rate-limit.e2e-spec.ts`, ligado com `RATE_LIMIT_IN_TEST=true`) e
-há um diagnóstico temporário, `GET /api/v1/health/client`, ativado com `DEBUG_CLIENT_IP=true` (desligado por padrão
-retorna 404). Ele mostra o IP que a API enxerga e a cadeia de proxies, para definir `TRUST_PROXY` com dados reais.
-**Não divulgue a URL da API antes de corrigir isso**, e desligue o diagnóstico depois.
+**Causa (medida com um diagnóstico temporário, já removido).** No Render, em acesso direto, a cadeia é:
+
+| Posição                     | Quem                                                              |
+| --------------------------- | ----------------------------------------------------------------- |
+| socket                      | `127.0.0.1` (proxy local do contêiner)                            |
+| `X-Forwarded-For`, último   | `10.x.x.x` (balanceador interno do Render)                        |
+| `X-Forwarded-For`, do meio  | `104.22.x.x` (servidor da Cloudflare, **muda a cada requisição**) |
+| `X-Forwarded-For`, primeiro | o IP real do cliente (igual a `cf-connecting-ip`)                 |
+
+Com 2 saltos confiáveis o Express parava no IP da Cloudflare (instável), e cada requisição caía num balde diferente.
+
+**Correção: `TRUST_PROXY=3`, verificado em produção:** o IP usado pela API ficou estável e igual ao real; 14 logins
+inválidos em paralelo deram 10×401 e 4×429; com `X-Forwarded-For` forjado diferente a cada requisição, 14×429
+(forjar não burla, pois o Express conta os saltos da direita para a esquerda). O diagnóstico (`DEBUG_CLIENT_IP`)
+foi desligado e `/health/client` responde 404.
+
+O limitador agora tem testes próprios (`rate-limit.e2e-spec.ts`, ligado com `RATE_LIMIT_IN_TEST=true`).
+
+**Atenção ao Cloudflare Pages.** O `3` vale só para acesso **direto** ao Render. Com o proxy do Pages na frente, a
+cadeia ganha o IP de saída do Worker e o `3` passaria a usar um IP compartilhado por todos os usuários. Antes de
+ligar o Pages é preciso que a Function envie o IP real em um cabeçalho próprio junto de um segredo compartilhado
+que a API valide (assim ninguém forja o cabeçalho acessando o Render diretamente). Isso ainda NÃO está implementado.
+**Não divulgue a URL da API nem ligue o Pages antes disso.**
 
 ## Incertezas que só o deploy real resolve
 
 - **Node 26 no Render.** Não confirmei que o Render oferece a versão 26.13.0. Se não oferecer, será preciso usar
   outra versão (o projeto só foi testado no Node 26; `engines` aceita `>=24`, não testado).
-- **`TRUST_PROXY=2`** (Render + Cloudflare) é uma dedução. Se estiver errado, o limite por IP pode enxergar o IP
-  do proxy (todos os usuários compartilhariam o limite) ou aceitar IP forjado. Valide no primeiro deploy.
+- **`TRUST_PROXY` com o proxy do Cloudflare Pages:** medido apenas para acesso direto ao Render (3). Com o Pages na
+  frente a cadeia muda; ver a seção do achado acima.
 - **Neon pooled vs. direto:** usamos a conexão direta. Não validei o adapter do Prisma contra o pooler.
 - **CPU de 10 ms por requisição** da Function: o proxy faz pouco trabalho de CPU, mas não foi medido no
   Cloudflare.
