@@ -121,6 +121,15 @@ Ver `.env.production.example`. Resumo: API (`NODE_ENV=production`, `DATABASE_URL
   (planeje correções como novas migrações).
 - **Logs:** a API e o worker escrevem JSON estruturado, sem segredos nem corpos de resposta.
 
+## Confirmado pelo CI no GitHub (2026-11-16)
+
+O workflow `CI` rodou no primeiro push (commit `e458129`) e passou por inteiro: a imagem `postgres:18` existe e
+sobe como serviço, o Node 26.13 é instalado pelo `actions/setup-node` a partir do `.nvmrc`, as migrações
+aplicam em um banco novo e os testes com banco (e2e da API e integração do worker) passam em Linux.
+
+**Ainda não executado:** o workflow `worker.yml` (depende do secret `DATABASE_URL`; sem ele só emite um aviso)
+e todos os serviços de nuvem.
+
 ## Incertezas que só o deploy real resolve
 
 - **Node 26 no Render.** Não confirmei que o Render oferece a versão 26.13.0. Se não oferecer, será preciso usar
@@ -128,7 +137,6 @@ Ver `.env.production.example`. Resumo: API (`NODE_ENV=production`, `DATABASE_URL
 - **`TRUST_PROXY=2`** (Render + Cloudflare) é uma dedução. Se estiver errado, o limite por IP pode enxergar o IP
   do proxy (todos os usuários compartilhariam o limite) ou aceitar IP forjado. Valide no primeiro deploy.
 - **Neon pooled vs. direto:** usamos a conexão direta. Não validei o adapter do Prisma contra o pooler.
-- **Imagem `postgres:18` no CI** e o workflow do GitHub não foram executados (sem push).
 - **CPU de 10 ms por requisição** da Function: o proxy faz pouco trabalho de CPU, mas não foi medido no
   Cloudflare.
 - **Cookie `Secure` e HTTPS:** só foi testado localmente (HTTP). O comportamento em HTTPS real é esperado, mas
