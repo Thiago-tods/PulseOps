@@ -12,6 +12,11 @@ const envSchema = z.object({
   // Menor intervalo aceito em monitores. Deve refletir a frequência real do worker (ver docs/DEPLOYMENT.md).
   MIN_MONITOR_INTERVAL_SEC: z.coerce.number().int().min(300).max(86_400).default(300),
   MAX_MONITORS_PER_ORG: z.coerce.number().int().min(1).max(1000).default(20),
+  // Diagnóstico temporário: expõe GET /health/client (IP visto pela API e cadeia de proxies).
+  DEBUG_CLIENT_IP: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
   TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(0),
   DATABASE_URL: z.string().optional(),
   DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(5),

@@ -130,6 +130,19 @@ aplicam em um banco novo e os testes com banco (e2e da API e integração do wor
 **Ainda não executado:** o workflow `worker.yml` (depende do secret `DATABASE_URL`; sem ele só emite um aviso)
 e todos os serviços de nuvem.
 
+## Achado no primeiro deploy (Render, 2026-11-16)
+
+A API subiu e passou nos testes de fumaça (saúde, banco, cadastro, cookie `HttpOnly; Secure; SameSite=Strict`,
+rotação de refresh, SSRF, intervalo mínimo). **Mas o limite de tentativas de login não bloqueava**: 14 tentativas
+em paralelo retornaram todas 401, sem nenhum 429, inclusive com `X-Forwarded-For` forjado. Localmente o mesmo teste
+dá 10×401 e 4×429. Conclusão: com `TRUST_PROXY=2` a API não identifica um IP estável do cliente atrás do Render
+(a chave do limitador varia por requisição). Os testes automatizados não pegaram porque desligam o limitador.
+
+Resposta: o limitador agora tem testes próprios (`rate-limit.e2e-spec.ts`, ligado com `RATE_LIMIT_IN_TEST=true`) e
+há um diagnóstico temporário, `GET /api/v1/health/client`, ativado com `DEBUG_CLIENT_IP=true` (desligado por padrão
+retorna 404). Ele mostra o IP que a API enxerga e a cadeia de proxies, para definir `TRUST_PROXY` com dados reais.
+**Não divulgue a URL da API antes de corrigir isso**, e desligue o diagnóstico depois.
+
 ## Incertezas que só o deploy real resolve
 
 - **Node 26 no Render.** Não confirmei que o Render oferece a versão 26.13.0. Se não oferecer, será preciso usar

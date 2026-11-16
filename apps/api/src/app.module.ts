@@ -18,8 +18,9 @@ import { UsersModule } from './users/users.module';
   imports: [
     ThrottlerModule.forRoot({
       throttlers: [{ ttl: 60_000, limit: 100 }],
-      // Os testes automatizados fazem muitos cadastros/logins seguidos.
-      skipIf: () => process.env.NODE_ENV === 'test',
+      // Os testes automatizados fazem muitos cadastros/logins seguidos; o teste do próprio
+      // limitador o reativa com RATE_LIMIT_IN_TEST=true.
+      skipIf: () => process.env.NODE_ENV === 'test' && process.env.RATE_LIMIT_IN_TEST !== 'true',
     }),
     CommonModule,
     HealthModule,
