@@ -222,8 +222,8 @@ model Incident {
   updates       IncidentUpdate[]
   notifications Notification[]
 
-  // Pendente (SQL manual na migração): índice único parcial garantindo
-  // no máximo 1 incidente aberto por monitor (WHERE resolved_at IS NULL).
+  // O índice único parcial `incidents_one_open_per_monitor` (no máximo 1 incidente aberto por
+  // monitor, WHERE resolved_at IS NULL) existe só no SQL da migração: o Prisma não o declara.
   @@index([organizationId, status])
   @@index([monitorId, startedAt(sort: Desc)])
   @@map("incidents")
@@ -250,7 +250,10 @@ model AlertRule {
   name           String       @default("")
   monitorId      String?      @map("monitor_id") @db.Uuid // nulo = todos os monitores
   channel        AlertChannel
-  target         String // e-mail ou URL (segredos devem ser cifrados na aplicação)
+  // URL do webhook, cifrada na aplicação (AES-256-GCM, formato v1:...). Valores sem prefixo são legado.
+  target         String
+  // Segredo de assinatura HMAC do webhook, cifrado. Nulo em regras anteriores à assinatura.
+  signingSecret  String?      @map("signing_secret")
   enabled        Boolean      @default(true)
   createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)

@@ -108,6 +108,12 @@ export interface MonitorDto {
   updatedAt: string;
 }
 
+/** Limites desta instalação, usados pelo frontend para oferecer apenas opções válidas. */
+export interface MonitorLimitsDto {
+  minIntervalSec: number;
+  maxMonitors: number;
+}
+
 export type CheckStatusDto = 'UP' | 'DOWN' | 'TIMEOUT' | 'ERROR';
 
 export interface CheckDto {
@@ -158,6 +164,10 @@ export interface AlertRuleDto {
   channel: 'EMAIL' | 'WEBHOOK';
   /** URL mascarada: o caminho e a query costumam conter segredos e nunca são devolvidos. */
   targetPreview: string;
+  /** Se a regra assina as entregas (HMAC). Regras antigas podem não ter segredo até serem rotacionadas. */
+  hasSigningSecret: boolean;
+  /** Segredo de assinatura: devolvido SOMENTE ao criar a regra ou ao gerar um novo segredo. */
+  signingSecret?: string;
   monitorId: string | null;
   monitorName: string | null;
   enabled: boolean;

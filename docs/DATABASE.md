@@ -2,10 +2,15 @@
 
 Schema: `packages/db/prisma/schema.prisma` (Prisma 7.10.1, PostgreSQL). IDs UUID v7 gerados pelo Prisma.
 
-**Migração `20261116000000_init` aplicada em 2026-11-16 no banco local `pulseops` (PostgreSQL 18.6, porta 5432): 15 tabelas e o índice parcial `incidents_one_open_per_monitor`.** A URL de conexão vem de `DATABASE_URL`
-(`prisma.config.ts`); sem ela, `validate`/`generate` usam um placeholder que não conecta.
+A URL de conexão vem de `DATABASE_URL` (`prisma.config.ts`); sem ela, `validate` e `generate` usam um placeholder que não conecta.
 
-**Migrações aplicadas:** `20261116000000_init` (15 tabelas) e `20261117000000_alerts_notifications` (enum `NotificationEvent`, `notifications.event` com índice único `(incident_id, alert_rule_id, event)`, `alert_rules.name`, remoção de `consecutive_failures`).
+**Migrações** (em `packages/db/prisma/migrations`):
+
+| Migração                                   | Conteúdo                                                                                                                                               | Local    | Neon (produção)                       |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- | ------------------------------------- |
+| `20261116000000_init`                      | 15 tabelas e o índice parcial `incidents_one_open_per_monitor`                                                                                         | aplicada | aplicada em 2026-11-16                |
+| `20261117000000_alerts_notifications`      | enum `NotificationEvent`, `notifications.event`, índice único `(incident_id, alert_rule_id, event)`, `alert_rules.name`, remove `consecutive_failures` | aplicada | aplicada em 2026-11-16                |
+| `20261118000000_alert_rule_signing_secret` | coluna `alert_rules.signing_secret` (anulável, aditiva)                                                                                                | aplicada | **pendente** (ver docs/DEPLOYMENT.md) |
 
 ## Entidades
 
@@ -29,7 +34,12 @@ AlertRule, Notification, StatusPage, StatusPageMonitor, AuditLog, WorkerTask. Ta
 - User → CASCADE em sessions e membership; `SET NULL` em autor de updates e ator de auditoria.
 - Monitor → CASCADE em checks, alert_rules e status_page_monitors; `SET NULL` em incidents (preserva histórico).
 
+## Colunas cifradas
+
+`alert_rules.target` (URL do webhook) e `alert_rules.signing_secret` guardam valores cifrados na aplicação (AES-256-GCM, formato `v1:<chave>:<iv>:<tag>:<texto>`). Valores sem o prefixo `v1:` são regras anteriores à cifra; o script `npm run webhooks:reencrypt` os converte.
+
 ## Pendências
 
 - E-mails guardados em minúsculas pela aplicação (sem `citext`, que exigiria extensão).
-- Job de retenção e RLS opcional.
+- Retenção: `monitor_checks`, tarefas concluídas e sessões expiradas são limpas pelo worker; `audit_logs`, `notifications` e `incident_updates` ainda crescem sem limite.
+- RLS opcional e papel de banco com privilégio mínimo (ver docs/SECURITY.md).

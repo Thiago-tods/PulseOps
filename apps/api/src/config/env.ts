@@ -1,3 +1,4 @@
+import { SecretBox } from '@pulseops/db';
 import { z } from 'zod';
 
 const envSchema = z.object({
@@ -21,6 +22,11 @@ const envSchema = z.object({
   // o envia junto do IP real, a API usa esse IP. Sem ele, vale o cálculo por TRUST_PROXY.
   PROXY_SHARED_SECRET: z.string().min(32).optional(),
   TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(0),
+  // Chave AES-256 (32 bytes em base64) que cifra os destinos e segredos dos webhooks no banco.
+  // Gere com: node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+  WEBHOOK_ENCRYPTION_KEY: z.string().optional(),
+  // Chaves antigas (separadas por vírgula), aceitas só para decifrar durante a rotação.
+  WEBHOOK_ENCRYPTION_KEY_PREVIOUS: z.string().optional(),
   DATABASE_URL: z.string().optional(),
   DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(5),
   JWT_ACCESS_SECRET: z.string().min(32).optional(),
@@ -30,6 +36,13 @@ const envSchema = z.object({
 
 export type AppEnv = z.infer<typeof envSchema> & { corsOrigins: string[] };
 
+export function splitKeys(value: string | undefined): string[] {
+  return (value ?? '')
+    .split(',')
+    .map((k) => k.trim())
+    .filter(Boolean);
+}
+
 /** Valida variáveis de ambiente na inicialização. Falha rápido sem expor valores. */
 export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
   const parsed = envSchema.safeParse(source);
@@ -38,8 +51,18 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): AppEnv {
     throw new Error(`Configuração inválida. Variáveis com problema: ${campos}`);
   }
   const env = parsed.data;
+  // Falha rápido (sem expor o valor) se a chave estiver mal formada.
+  if (env.WEBHOOK_ENCRYPTION_KEY) {
+    try {
+      new SecretBox(env.WEBHOOK_ENCRYPTION_KEY, splitKeys(env.WEBHOOK_ENCRYPTION_KEY_PREVIOUS));
+    } catch {
+      throw new Error('Configuração inválida. Variáveis com problema: WEBHOOK_ENCRYPTION_KEY');
+    }
+  }
   if (env.NODE_ENV === 'production') {
-    const faltando = (['JWT_ACCESS_SECRET', 'DATABASE_URL'] as const).filter((k) => !env[k]);
+    const faltando = (
+      ['JWT_ACCESS_SECRET', 'DATABASE_URL', 'WEBHOOK_ENCRYPTION_KEY'] as const
+    ).filter((k) => !env[k]);
     // Em produção a origem do frontend deve ser HTTPS e não pode ser local.
     const origensInseguras = env.CORS_ORIGINS.split(',')
       .map((o) => o.trim())

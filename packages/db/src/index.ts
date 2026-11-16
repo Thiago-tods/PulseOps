@@ -2,6 +2,8 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaClient } from './generated/client';
 
 export * from './generated/client';
+export * from './secret-box';
+export * from './webhook-signature';
 
 export interface CreateClientOptions {
   /** Máximo de conexões do pool. Planos gratuitos (ex.: Neon) têm poucas conexões. */

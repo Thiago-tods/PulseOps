@@ -15,6 +15,7 @@ import type {
   CheckStatusDto,
   CreateMonitorInput,
   MonitorDto,
+  MonitorLimitsDto,
   UpdateMonitorInput,
 } from '@pulseops/shared';
 import { AuditService } from '../audit/audit.service';
@@ -87,6 +88,13 @@ export class MonitorsService {
     private readonly audit: AuditService,
     @Inject(APP_ENV) private readonly env: AppEnv,
   ) {}
+
+  limits(): MonitorLimitsDto {
+    return {
+      minIntervalSec: this.env.MIN_MONITOR_INTERVAL_SEC,
+      maxMonitors: this.env.MAX_MONITORS_PER_ORG,
+    };
+  }
 
   private assertInterval(intervalSec: number | undefined): void {
     const min = this.env.MIN_MONITOR_INTERVAL_SEC;

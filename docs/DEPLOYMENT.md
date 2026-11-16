@@ -29,12 +29,48 @@ npx wrangler@4 pages deploy apps/web/dist --project-name pulseops --branch main
 
 O agendamento (`7,22,37,52 * * * *`) atrasa ou pula execuções em repositórios públicos. No primeiro dia, a
 execução das :07 não veio; disparar manualmente (`workflow_dispatch`) funciona. Os checks podem sair com atraso
-de dezenas de minutos; para pontualidade seria preciso outro agendador.
+de dezenas de minutos; para pontualidade seria preciso outro agendador. O GitHub também **desativa** o agendamento
+após 60 dias sem atividade no repositório: se os checks pararem, reative em Actions ou faça um commit.
+
+## Publicar a versão com webhooks cifrados e assinados (ordem obrigatória)
+
+Esta versão adiciona a coluna `alert_rules.signing_secret` e exige a variável `WEBHOOK_ENCRYPTION_KEY` na API em
+produção (sem ela a API **recusa iniciar**). Siga a ordem para não derrubar nada:
+
+1. **Gere a chave** (32 bytes em base64) e **guarde uma cópia segura**; sem ela os webhooks já cadastrados não
+   podem ser lidos:
+   ```powershell
+   node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+   ```
+2. **Configure a chave** (o mesmo valor) no painel do Render (`WEBHOOK_ENCRYPTION_KEY`) e no GitHub, em
+   Settings > Secrets and variables > Actions (`WEBHOOK_ENCRYPTION_KEY`). Ainda não faça o deploy.
+3. **Aplique a migração** no Neon (aditiva: só adiciona uma coluna anulável):
+   ```powershell
+   $env:DATABASE_URL = "<connection string do Neon>"
+   npm run db:migrate:deploy
+   Remove-Item Env:DATABASE_URL
+   ```
+4. **Faça o deploy manual da API** no Render (a API antiga continua funcionando com o banco migrado).
+5. **Republique o frontend** (comando acima). Ele passa a mostrar o segredo de assinatura e a oferecer o intervalo
+   mínimo correto.
+6. **Regras antigas (se houver):** rode a simulação e depois aplique o recifrado, com `DATABASE_URL` e a chave no
+   ambiente da sessão:
+   ```powershell
+   npm run webhooks:reencrypt            # simulação, não grava nada
+   npm run webhooks:reencrypt -- --apply # cifra os destinos em texto puro
+   ```
+   Regras sem segredo de assinatura continuam enviando, **sem** assinatura, até alguém usar "Gerar segredo".
+7. **Rode o worker** manualmente (`workflow_dispatch`) e confira que um teste de alerta é entregue.
+
+**Rotação da chave:** gere uma nova, coloque-a em `WEBHOOK_ENCRYPTION_KEY` e a antiga em
+`WEBHOOK_ENCRYPTION_KEY_PREVIOUS` (API e worker), faça o deploy, rode `npm run webhooks:reencrypt -- --apply` e só
+então remova a chave antiga.
 
 ---
 
-O restante deste guia foi escrito **antes** do deploy e fica como referência de limites e passos. Números vieram
-das páginas oficiais em 2026-11-16; planos gratuitos mudam, então **confirme antes de depender deles**.
+O restante deste guia é **referência**: limites dos planos gratuitos, o runbook usado no primeiro deploy e os
+achados medidos em produção. Números vieram das páginas oficiais em 2026-11-16; planos gratuitos mudam, então
+**confirme antes de depender deles**.
 
 ## Decisões tomadas
 
@@ -96,14 +132,10 @@ visível; segredos ficam nos Secrets), frequência menor, ou outro agendador.
 Com 20 monitores a cada 15 min: ~57.600 verificações em 30 dias, algumas dezenas de MB. A retenção de 30 dias
 mantém isso estável e cabe no 1 GB.
 
-## O que você precisaria autorizar
+## Runbook do primeiro deploy (executado em 2026-11-16; use-o para recriar o ambiente)
 
-1. Criar contas: GitHub, Neon, Render, Cloudflare (nenhuma foi criada).
-2. Fazer o primeiro commit e configurar o remoto Git (nada foi commitado).
-3. Aplicar migrações no banco do Neon (escrita no banco de produção).
-4. Publicar a API (Render), o frontend (Cloudflare) e ativar o agendamento do worker.
-
-## Passo a passo (quando autorizado)
+Cada etapa exige criar contas ou aplicar mudanças em serviços externos, então depende de ação autorizada por
+quem opera o projeto.
 
 1. **Repositório.** Commit inicial e push para o GitHub. O `.env` nunca vai (está no `.gitignore`).
 2. **Neon.** Crie o projeto e o banco; copie a connection string **direta** (sem `-pooler`) com
@@ -117,11 +149,13 @@ mantém isso estável e cabe no 1 GB.
 4. **Render.** Crie o serviço a partir do `render.yaml`. Preencha no painel `DATABASE_URL`,
    `JWT_ACCESS_SECRET` (48+ bytes aleatórios) e `CORS_ORIGINS` (a URL do Pages, em HTTPS). Confirme o
    `NODE_VERSION`. Teste `https://SEU-SERVICO.onrender.com/api/v1/health/ready`.
-5. **Cloudflare Pages.** Projeto ligado ao repositório, raiz = repositório; build `npm ci && npm run build -w
-@pulseops/web`; saída `apps/web/dist`; variável `API_ORIGIN` = URL do Render. As `_headers` (CSP) e a
+5. **Cloudflare Pages.** O projeto em produção foi criado pela CLI e publicado com
+   `wrangler pages deploy` (ver "Como publicar o frontend de novo"). Alternativa: ligar o repositório no painel,
+   com raiz = repositório, build `npm ci && npm run build -w @pulseops/web` e saída `apps/web/dist`. Em qualquer
+   caso, configure `API_ORIGIN` (URL do Render) e `PROXY_SHARED_SECRET` como secrets. As `_headers` (CSP) e a
    Function já estão no repositório.
-6. **Worker.** Crie o secret `DATABASE_URL` no GitHub, escolha a frequência, descomente o `schedule` em
-   `.github/workflows/worker.yml` e rode uma vez manualmente (`workflow_dispatch`).
+6. **Worker.** Crie os secrets `DATABASE_URL` e `WEBHOOK_ENCRYPTION_KEY` no GitHub. O `schedule` em
+   `.github/workflows/worker.yml` já está ativo; rode uma vez manualmente (`workflow_dispatch`).
 7. **Valide** com o checklist abaixo.
 
 ### Checklist pós-deploy
@@ -137,9 +171,10 @@ mantém isso estável e cabe no 1 GB.
 ## Variáveis de ambiente
 
 Ver `.env.production.example`. Resumo: API (`NODE_ENV=production`, `DATABASE_URL`, `JWT_ACCESS_SECRET`,
-`CORS_ORIGINS`, `TRUST_PROXY`, `DB_POOL_MAX`, `MIN_MONITOR_INTERVAL_SEC`), Pages (`API_ORIGIN`, `PROXY_SHARED_SECRET`), Actions
-(secret `DATABASE_URL`). Em produção a API **recusa iniciar** sem `DATABASE_URL` e `JWT_ACCESS_SECRET`, ou com
-`CORS_ORIGINS` que não seja HTTPS ou que aponte para localhost.
+`WEBHOOK_ENCRYPTION_KEY`, `CORS_ORIGINS`, `TRUST_PROXY`, `PROXY_SHARED_SECRET`, `DB_POOL_MAX`,
+`MIN_MONITOR_INTERVAL_SEC`), Pages (`API_ORIGIN`, `PROXY_SHARED_SECRET`), Actions (secrets `DATABASE_URL` e
+`WEBHOOK_ENCRYPTION_KEY`). Em produção a API **recusa iniciar** sem `DATABASE_URL`, `JWT_ACCESS_SECRET` e
+`WEBHOOK_ENCRYPTION_KEY` válida, ou com `CORS_ORIGINS` que não seja HTTPS ou que aponte para localhost.
 
 ## Operação
 
@@ -157,8 +192,7 @@ O workflow `CI` rodou no primeiro push (commit `e458129`) e passou por inteiro: 
 sobe como serviço, o Node 26.13 é instalado pelo `actions/setup-node` a partir do `.nvmrc`, as migrações
 aplicam em um banco novo e os testes com banco (e2e da API e integração do worker) passam em Linux.
 
-**Ainda não executado:** o workflow `worker.yml` (depende do secret `DATABASE_URL`; sem ele só emite um aviso)
-e todos os serviços de nuvem.
+Depois disso o `worker.yml` foi executado manualmente em produção e gravou um check real (`UP`, HTTP 200).
 
 ## Achado no primeiro deploy (Render, 2026-11-16): limite de login
 

@@ -86,13 +86,52 @@ describeDb('Alertas, notificações e página de status (banco real)', () => {
         enabled: true,
       });
       expect(res.body).not.toHaveProperty('target');
+      // O segredo de assinatura aparece só na criação.
+      expect(res.body.signingSecret).toMatch(/^whsec_/);
+      expect(res.body.hasSigningSecret).toBe(true);
 
       const list = await request(server())
         .get('/api/v1/alert-rules')
         .set(auth(a.token))
         .expect(200);
       expect(JSON.stringify(list.body)).not.toContain(SECRET_PATH);
+      expect(JSON.stringify(list.body)).not.toContain(res.body.signingSecret);
+      expect(list.body[0].hasSigningSecret).toBe(true);
+      expect(list.body[0]).not.toHaveProperty('signingSecret');
+
+      // No banco, destino e segredo ficam cifrados (nada em texto puro).
+      const row = await prisma.db.alertRule.findUniqueOrThrow({ where: { id: res.body.id } });
+      expect(row.target.startsWith('v1:')).toBe(true);
+      expect(row.target).not.toContain('hooks.exemplo.com');
+      expect(row.signingSecret?.startsWith('v1:')).toBe(true);
+      expect(row.signingSecret).not.toContain(res.body.signingSecret);
       expect(list.body[0].monitorName).toMatch(/^Mon /);
+    });
+
+    it('rotaciona o segredo de assinatura: o novo aparece uma vez e o antigo deixa de valer', async () => {
+      const a = await setup('Alfa Rot');
+      const created = await createRule(a.token).expect(201);
+      const rotated = await request(server())
+        .post(`/api/v1/alert-rules/${created.body.id}/signing-secret`)
+        .set(auth(a.token))
+        .expect(200);
+      expect(rotated.body.signingSecret).toMatch(/^whsec_/);
+      expect(rotated.body.signingSecret).not.toBe(created.body.signingSecret);
+      const list = await request(server())
+        .get('/api/v1/alert-rules')
+        .set(auth(a.token))
+        .expect(200);
+      expect(JSON.stringify(list.body)).not.toContain(rotated.body.signingSecret);
+    });
+
+    it('rotação respeita papéis e isolamento entre organizações', async () => {
+      const a = await setup('Alfa Rot2');
+      const b = await setup('Beta Rot2');
+      const rule = await createRule(a.token).expect(201);
+      const url = `/api/v1/alert-rules/${rule.body.id}/signing-secret`;
+      await request(server()).post(url).set(auth(b.token)).expect(404);
+      await setRole(a.email, 'MEMBER');
+      await request(server()).post(url).set(auth(a.token)).expect(403);
     });
 
     it.each([

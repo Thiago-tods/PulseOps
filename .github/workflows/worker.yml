@@ -28,6 +28,8 @@ jobs:
     timeout-minutes: 8
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      # Mesma chave da API: o worker decifra o destino e o segredo de assinatura dos webhooks.
+      WEBHOOK_ENCRYPTION_KEY: ${{ secrets.WEBHOOK_ENCRYPTION_KEY }}
     steps:
       - name: Verificar secret
         if: ${{ env.DATABASE_URL == '' }}

@@ -1,5 +1,12 @@
 import { randomUUID } from 'node:crypto';
-import { createPrismaClient, type PrismaClient } from '@pulseops/db';
+import {
+  createPrismaClient,
+  generateSigningSecret,
+  SECRET_CONTEXT,
+  SecretBox,
+  verifyWebhookSignature,
+  type PrismaClient,
+} from '@pulseops/db';
 import type { SafeRequestOptions, SafeRequestResult } from '@pulseops/http-guard';
 import { CheckMonitorHandler, type RequestFn } from '../src/handlers/check-monitor';
 import { SendNotificationHandler, TASK_SEND_NOTIFICATION } from '../src/handlers/notifications';
@@ -143,6 +150,57 @@ describeDb('Notificações (PostgreSQL real)', () => {
       const n = await db.notification.findFirstOrThrow({ where: { alertRuleId: rule.id } });
       return { rule, monitor: m, notification: n };
     }
+
+    it('decifra o destino, assina o corpo com o segredo da regra e o consumidor consegue verificar', async () => {
+      const box = new SecretBox(SecretBox.generateKey());
+      const secret = generateSigningSecret();
+      const url = 'https://hooks.exemplo.com/segredo-cifrado/xyz';
+      const { notification } = await pending({
+        target: box.encrypt(url, SECRET_CONTEXT.alertRuleTarget),
+        signingSecret: box.encrypt(secret, SECRET_CONTEXT.alertRuleSigningSecret),
+      });
+      const calls: { url: string; options: SafeRequestOptions }[] = [];
+      const request: RequestFn = async (u, options) => {
+        calls.push({ url: u, options });
+        return result({ status: 204 });
+      };
+      await new SendNotificationHandler(db, silent, request, box).handle(sendTask(notification.id));
+
+      expect(calls[0]?.url).toBe(url); // o destino em claro só existe em memória, na hora do envio
+      const header = (calls[0]?.options.headers ?? {})['x-pulseops-signature'] ?? '';
+      expect(verifyWebhookSignature(secret, calls[0]?.options.body ?? '', header)).toBe(true);
+      expect(
+        verifyWebhookSignature(generateSigningSecret(), calls[0]?.options.body ?? '', header),
+      ).toBe(false);
+      const sent = await db.notification.findUniqueOrThrow({ where: { id: notification.id } });
+      expect(sent.status).toBe('SENT');
+    });
+
+    it('regra legada (texto puro, sem segredo) continua enviando, sem assinatura', async () => {
+      const { notification } = await pending();
+      const calls: { url: string; options: SafeRequestOptions }[] = [];
+      const request: RequestFn = async (u, options) => {
+        calls.push({ url: u, options });
+        return result({ status: 204 });
+      };
+      await new SendNotificationHandler(db, silent, request).handle(sendTask(notification.id));
+      expect(calls[0]?.options.headers).not.toHaveProperty('x-pulseops-signature');
+    });
+
+    it('sem a chave no worker, destino cifrado falha sem enviar e sem vazar o conteúdo', async () => {
+      const box = new SecretBox(SecretBox.generateKey());
+      const { notification } = await pending({
+        target: box.encrypt(
+          'https://hooks.exemplo.com/nao-vazar-abc',
+          SECRET_CONTEXT.alertRuleTarget,
+        ),
+      });
+      const request = jest.fn<ReturnType<RequestFn>, Parameters<RequestFn>>();
+      await expect(
+        new SendNotificationHandler(db, silent, request, null).handle(sendTask(notification.id)),
+      ).rejects.toThrow(/WEBHOOK_ENCRYPTION_KEY/);
+      expect(request).not.toHaveBeenCalled();
+    });
 
     it('envia POST JSON com cabeçalhos e marca como SENT', async () => {
       const { rule, monitor, notification } = await pending();

@@ -4,6 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { generateSigningSecret, SECRET_CONTEXT } from '@pulseops/db';
 import type {
   AlertRuleDto,
   CreateAlertRuleInput,
@@ -13,6 +14,7 @@ import type {
 import { AuditService } from '../audit/audit.service';
 import type { AuthContext } from '../auth/auth.types';
 import { PrismaService } from '../common/prisma.service';
+import { SecretsService } from '../common/secrets.service';
 import { maskUrl, normalizeTargetUrl } from '../common/target-url';
 
 export const MAX_ALERT_RULES_PER_ORG = 10;
@@ -23,23 +25,11 @@ interface RuleRow {
   name: string;
   channel: 'EMAIL' | 'WEBHOOK';
   target: string;
+  signingSecret: string | null;
   monitorId: string | null;
   enabled: boolean;
   createdAt: Date;
   monitor?: { name: string } | null;
-}
-
-function toDto(r: RuleRow): AlertRuleDto {
-  return {
-    id: r.id,
-    name: r.name,
-    channel: r.channel,
-    targetPreview: maskUrl(r.target),
-    monitorId: r.monitorId,
-    monitorName: r.monitor?.name ?? null,
-    enabled: r.enabled,
-    createdAt: r.createdAt.toISOString(),
-  };
 }
 
 @Injectable()
@@ -47,7 +37,27 @@ export class AlertsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly secrets: SecretsService,
   ) {}
+
+  /** Monta o DTO; o destino é decifrado só para mascarar (nunca devolvido por inteiro). */
+  private toDto(r: RuleRow, signingSecret?: string): AlertRuleDto {
+    const target = this.secrets.box.decrypt(r.target, SECRET_CONTEXT.alertRuleTarget, {
+      allowLegacyPlaintext: true,
+    });
+    return {
+      id: r.id,
+      name: r.name,
+      channel: r.channel,
+      targetPreview: maskUrl(target),
+      hasSigningSecret: r.signingSecret !== null || signingSecret !== undefined,
+      ...(signingSecret ? { signingSecret } : {}),
+      monitorId: r.monitorId,
+      monitorName: r.monitor?.name ?? null,
+      enabled: r.enabled,
+      createdAt: r.createdAt.toISOString(),
+    };
+  }
 
   async list(organizationId: string): Promise<AlertRuleDto[]> {
     const rows = await this.prisma.db.alertRule.findMany({
@@ -55,7 +65,7 @@ export class AlertsService {
       include: { monitor: { select: { name: true } } },
       orderBy: { createdAt: 'desc' },
     });
-    return rows.map(toDto);
+    return rows.map((r) => this.toDto(r));
   }
 
   private async assertMonitorInOrg(
@@ -84,13 +94,19 @@ export class AlertsService {
       );
     }
     await this.assertMonitorInOrg(auth.organizationId, input.monitorId);
-    const target = await normalizeTargetUrl(input.target);
+    const box = this.secrets.box;
+    const target = box.encrypt(
+      await normalizeTargetUrl(input.target),
+      SECRET_CONTEXT.alertRuleTarget,
+    );
+    const signingSecret = generateSigningSecret();
     const row = await this.prisma.db.alertRule.create({
       data: {
         organizationId: auth.organizationId,
         name: input.name,
         channel: input.channel,
         target,
+        signingSecret: box.encrypt(signingSecret, SECRET_CONTEXT.alertRuleSigningSecret),
         monitorId: input.monitorId,
       },
       include: { monitor: { select: { name: true } } },
@@ -104,7 +120,8 @@ export class AlertsService {
       entityId: row.id,
       ip,
     });
-    return toDto(row);
+    // O segredo de assinatura só é mostrado agora; depois fica apenas cifrado no servidor.
+    return this.toDto(row, signingSecret);
   }
 
   async update(
@@ -122,7 +139,14 @@ export class AlertsService {
     }
     const data = {
       ...input,
-      ...(input.target ? { target: await normalizeTargetUrl(input.target) } : {}),
+      ...(input.target
+        ? {
+            target: this.secrets.box.encrypt(
+              await normalizeTargetUrl(input.target),
+              SECRET_CONTEXT.alertRuleTarget,
+            ),
+          }
+        : {}),
     };
     await this.prisma.db.alertRule.updateMany({
       where: { id, organizationId: auth.organizationId },
@@ -141,7 +165,42 @@ export class AlertsService {
       where: { id, organizationId: auth.organizationId },
       include: { monitor: { select: { name: true } } },
     });
-    return toDto(row);
+    return this.toDto(row);
+  }
+
+  /** Gera um novo segredo de assinatura (o anterior deixa de valer imediatamente). */
+  async rotateSigningSecret(
+    auth: AuthContext,
+    id: string,
+    ip: string | null,
+  ): Promise<AlertRuleDto> {
+    const current = await this.prisma.db.alertRule.findFirst({
+      where: { id, organizationId: auth.organizationId },
+    });
+    if (!current) throw new NotFoundException('Regra não encontrada');
+    const signingSecret = generateSigningSecret();
+    await this.prisma.db.alertRule.updateMany({
+      where: { id, organizationId: auth.organizationId },
+      data: {
+        signingSecret: this.secrets.box.encrypt(
+          signingSecret,
+          SECRET_CONTEXT.alertRuleSigningSecret,
+        ),
+      },
+    });
+    await this.audit.log({
+      organizationId: auth.organizationId,
+      actorId: auth.userId,
+      action: 'alert_rule.rotate_secret',
+      entityType: 'alert_rule',
+      entityId: id,
+      ip,
+    });
+    const row = await this.prisma.db.alertRule.findFirstOrThrow({
+      where: { id, organizationId: auth.organizationId },
+      include: { monitor: { select: { name: true } } },
+    });
+    return this.toDto(row, signingSecret);
   }
 
   async remove(auth: AuthContext, id: string, ip: string | null): Promise<void> {

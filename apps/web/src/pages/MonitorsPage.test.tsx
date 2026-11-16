@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -119,5 +119,54 @@ describe('MonitorsPage', () => {
     );
     renderPage();
     expect(await screen.findByText('Aguardando 1ª verificação')).toBeInTheDocument();
+  });
+
+  it('só oferece intervalos aceitos pela instalação (mínimo de 15 min) e usa 15 min como padrão', async () => {
+    fetchMock.mockImplementation((url: string) => {
+      if (url.endsWith('/auth/refresh')) return json(200, session);
+      if (url.endsWith('/monitors/limits'))
+        return json(200, { minIntervalSec: 900, maxMonitors: 20 });
+      return json(200, []);
+    });
+    renderPage();
+    await screen.findByLabelText('Intervalo');
+    // O select é recriado quando o limite chega; por isso é consultado de novo a cada tentativa.
+    await vi.waitFor(() => {
+      const select = screen.getByLabelText('Intervalo') as HTMLSelectElement;
+      expect([...select.options].map((o) => o.value)).toEqual(['900', '1800', '3600']);
+      expect(select.value).toBe('900');
+    });
+  });
+
+  it('edita um monitor existente e envia só os campos do formulário', async () => {
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith('/auth/refresh')) return json(200, session);
+      if (url.endsWith('/monitors/limits'))
+        return json(200, { minIntervalSec: 300, maxMonitors: 20 });
+      if (init?.method === 'PATCH') return json(200, { ...monitor, name: 'API renomeada' });
+      return json(200, [monitor]);
+    });
+    renderPage();
+    const user = userEvent.setup();
+    await screen.findByText('API principal');
+    await user.click(screen.getByRole('button', { name: 'Editar' }));
+    const form = screen.getByRole('form', { name: 'Editar API principal' });
+    const name = within(form).getByLabelText('Nome');
+    await user.clear(name);
+    await user.type(name, 'API renomeada');
+    await user.click(within(form).getByRole('button', { name: 'Salvar' }));
+
+    await vi.waitFor(() => {
+      const call = fetchMock.mock.calls.find(
+        ([, init]) => (init as RequestInit | undefined)?.method === 'PATCH',
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(String((call?.[1] as RequestInit).body))).toEqual({
+        name: 'API renomeada',
+        url: monitor.url,
+        method: 'GET',
+        intervalSec: 300,
+      });
+    });
   });
 });

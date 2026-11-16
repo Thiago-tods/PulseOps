@@ -21,10 +21,24 @@ describe('loadEnv', () => {
       JWT_ACCESS_SECRET: 'x'.repeat(40),
       DATABASE_URL: 'postgresql://u:p@host/db',
       CORS_ORIGINS: 'https://app.exemplo.com',
+      WEBHOOK_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString('base64'),
     };
 
     it('aceita configuração completa com origem HTTPS', () => {
       expect(loadEnv(base).corsOrigins).toEqual(['https://app.exemplo.com']);
+    });
+
+    it('exige a chave de criptografia dos webhooks e a valida sem revelar o valor', () => {
+      expect(() => loadEnv({ ...base, WEBHOOK_ENCRYPTION_KEY: undefined })).toThrow(
+        /WEBHOOK_ENCRYPTION_KEY/,
+      );
+      try {
+        loadEnv({ ...base, WEBHOOK_ENCRYPTION_KEY: 'chave-curta-secreta' });
+        throw new Error('deveria falhar');
+      } catch (err) {
+        expect(String(err)).toMatch(/WEBHOOK_ENCRYPTION_KEY/);
+        expect(String(err)).not.toContain('chave-curta-secreta');
+      }
     });
 
     it('exige DATABASE_URL', () => {

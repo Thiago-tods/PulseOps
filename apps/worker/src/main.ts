@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { createPrismaClient } from '@pulseops/db';
+import { createPrismaClient, SecretBox } from '@pulseops/db';
 import { loadEnv } from './env';
 import { CheckMonitorHandler } from './handlers/check-monitor';
 import { SendNotificationHandler, TASK_SEND_NOTIFICATION } from './handlers/notifications';
@@ -23,7 +23,17 @@ function main(): void {
     dueLeadSec: env.SCHEDULER_LEAD_SEC,
   });
   const checks = new CheckMonitorHandler(db, log);
-  const notifications = new SendNotificationHandler(db, log);
+  const box = env.WEBHOOK_ENCRYPTION_KEY
+    ? new SecretBox(
+        env.WEBHOOK_ENCRYPTION_KEY,
+        (env.WEBHOOK_ENCRYPTION_KEY_PREVIOUS ?? '')
+          .split(',')
+          .map((k) => k.trim())
+          .filter(Boolean),
+      )
+    : null;
+  if (!box) log.warn('WEBHOOK_ENCRYPTION_KEY ausente: webhooks cifrados não poderão ser enviados');
+  const notifications = new SendNotificationHandler(db, log, undefined, box);
   const retention = new RetentionHandler(db, log, env.CHECK_RETENTION_DAYS);
 
   const worker = new Worker(env, log, {

@@ -16,7 +16,7 @@ npm run dev:web
 ## Variáveis de ambiente
 
 Ver `.env.example`. API: `API_PORT`, `API_HOST`, `CORS_ORIGINS`, `LOG_LEVEL`, `DATABASE_URL`,
-`JWT_ACCESS_SECRET` (obrigatório em produção), `MAX_MONITORS_PER_ORG` (padrão 20). Worker: `WORKER_POLL_INTERVAL_MS`, `WORKER_CONCURRENCY`,
+`JWT_ACCESS_SECRET` e `WEBHOOK_ENCRYPTION_KEY` (obrigatórios em produção; a segunda cifra os webhooks no banco e vem de `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`), `WEBHOOK_ENCRYPTION_KEY_PREVIOUS` (só durante a rotação), `MIN_MONITOR_INTERVAL_SEC` (padrão 300; 900 em produção), `MAX_MONITORS_PER_ORG` (padrão 20), `TRUST_PROXY` e `PROXY_SHARED_SECRET` (IP real atrás de proxies; ver docs/SECURITY.md). Worker: `WORKER_MODE` (`daemon` ou `once`), `ONCE_MAX_DURATION_SEC`, `SCHEDULER_LEAD_SEC`, `WEBHOOK_ENCRYPTION_KEY`, `WORKER_POLL_INTERVAL_MS`, `WORKER_CONCURRENCY`,
 `TASK_LEASE_SEC`, `SCHEDULER_BATCH_SIZE`, `CHECK_RETENTION_DAYS`. Web: `VITE_API_URL`.
 
 ## Testes com banco
@@ -41,7 +41,7 @@ $env:WORKER_MODE = "once"; node --env-file=.env apps/worker/dist/main.js
 
 ## Alertas
 
-Em `/alertas` cadastre um webhook (HTTPS público) e use "Enviar teste". O worker precisa estar rodando para entregar. Destinos locais (`localhost`, redes privadas) são recusados de propósito; para testar localmente use um serviço público (ex.: um endpoint de teste de webhooks).
+Em `/alertas` cadastre um webhook (HTTPS público) e use "Enviar teste". O segredo de assinatura aparece uma única vez ao criar a regra (ver [WEBHOOKS.md](WEBHOOKS.md)). O worker precisa estar rodando para entregar, e `WEBHOOK_ENCRYPTION_KEY` precisa estar definida na API e no worker. Destinos locais (`localhost`, redes privadas) são recusados de propósito; para testar localmente use um serviço público (ex.: um endpoint de teste de webhooks).
 
 ## Fuso horário
 

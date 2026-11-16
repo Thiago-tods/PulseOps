@@ -18,6 +18,7 @@ const rule = {
   name: 'Slack time',
   channel: 'WEBHOOK',
   targetPreview: 'https://hooks.exemplo.com/…',
+  hasSigningSecret: true,
   monitorId: null,
   monitorName: null,
   enabled: true,
@@ -60,6 +61,28 @@ describe('páginas de alertas e status', () => {
   });
 
   describe('AlertsPage', () => {
+    it('mostra o segredo de assinatura uma única vez após criar a regra', async () => {
+      fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+        if (url.endsWith('/auth/refresh')) return json(200, session);
+        if (url.endsWith('/alert-rules') && init?.method === 'POST') {
+          return json(201, { ...rule, signingSecret: 'whsec_SEGREDO_DE_TESTE' });
+        }
+        if (url.endsWith('/alert-rules')) return json(200, []);
+        return json(200, []);
+      });
+      renderAt('/alertas');
+      const user = userEvent.setup();
+      await user.type(await screen.findByLabelText('Nome'), 'Slack time');
+      await user.type(screen.getByLabelText(/URL do webhook/), 'https://hooks.exemplo.com/abc');
+      await user.click(screen.getByRole('button', { name: 'Adicionar regra' }));
+
+      const box = await screen.findByRole('status', { name: 'Segredo de assinatura' });
+      expect(box).toHaveTextContent('whsec_SEGREDO_DE_TESTE');
+      expect(box).toHaveTextContent(/não será exibido novamente/);
+      await user.click(screen.getByRole('button', { name: 'Já guardei' }));
+      expect(screen.queryByText('whsec_SEGREDO_DE_TESTE')).not.toBeInTheDocument();
+    });
+
     it('lista regras (destino mascarado) e notificações com seu resultado', async () => {
       fetchMock.mockImplementation((url: string) => {
         if (url.endsWith('/auth/refresh')) return json(200, session);

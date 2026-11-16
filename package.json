@@ -27,7 +27,8 @@
     "dev:worker": "npm run dev -w @pulseops/worker",
     "dev:web": "npm run dev -w @pulseops/web",
     "test:db": "npm run test:e2e -w @pulseops/api && npm run test:int -w @pulseops/worker",
-    "db:migrate:deploy": "npm run migrate:deploy -w @pulseops/db"
+    "db:migrate:deploy": "npm run migrate:deploy -w @pulseops/db",
+    "webhooks:reencrypt": "node scripts/reencrypt-webhooks.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

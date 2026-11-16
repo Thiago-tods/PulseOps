@@ -4,6 +4,9 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   DATABASE_URL: z.string().min(1).optional(),
+  // Mesma chave da API: o worker decifra o destino e o segredo de assinatura dos webhooks.
+  WEBHOOK_ENCRYPTION_KEY: z.string().optional(),
+  WEBHOOK_ENCRYPTION_KEY_PREVIOUS: z.string().optional(),
   DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(5),
   // daemon: processo contínuo. once: processa o que está vencido e encerra (ex.: GitHub Actions).
   WORKER_MODE: z.enum(['daemon', 'once']).default('daemon'),

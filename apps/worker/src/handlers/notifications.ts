@@ -1,4 +1,10 @@
-import type { PrismaClient } from '@pulseops/db';
+import {
+  SECRET_CONTEXT,
+  SIGNATURE_HEADER,
+  signWebhook,
+  type PrismaClient,
+  SecretBox,
+} from '@pulseops/db';
 import { safeRequest } from '@pulseops/http-guard';
 import type { Logger } from '../logger';
 import type { Task } from '../types';
@@ -59,7 +65,16 @@ export class SendNotificationHandler {
     private readonly db: PrismaClient,
     private readonly log: Logger,
     private readonly request: RequestFn = safeRequest,
+    private readonly box: SecretBox | null = null,
   ) {}
+
+  private decrypt(stored: string, context: string): string {
+    if (!SecretBox.isEncrypted(stored)) return stored; // legado, anterior à cifra
+    if (!this.box) {
+      throw new Error('WEBHOOK_ENCRYPTION_KEY não configurada no worker');
+    }
+    return this.box.decrypt(stored, context);
+  }
 
   async handle(task: Task): Promise<void> {
     const id = (task.payload as { notificationId?: unknown } | null)?.notificationId;
@@ -101,7 +116,13 @@ export class SendNotificationHandler {
       sentAt: new Date().toISOString(),
     });
 
-    const result = await this.request(rule.target, {
+    // Decifrar antes de enviar; erros aqui nunca incluem o conteúdo (só uma mensagem genérica).
+    const target = this.decrypt(rule.target, SECRET_CONTEXT.alertRuleTarget);
+    const signingSecret = rule.signingSecret
+      ? this.decrypt(rule.signingSecret, SECRET_CONTEXT.alertRuleSigningSecret)
+      : null;
+
+    const result = await this.request(target, {
       method: 'POST',
       body,
       timeoutMs: 10_000,
@@ -110,6 +131,7 @@ export class SendNotificationHandler {
         'content-type': 'application/json',
         'x-pulseops-event': event,
         'x-pulseops-delivery': n.id,
+        ...(signingSecret ? { [SIGNATURE_HEADER]: signWebhook(signingSecret, body) } : {}),
       },
     });
 

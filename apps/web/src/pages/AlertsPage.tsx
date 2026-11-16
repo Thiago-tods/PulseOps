@@ -40,6 +40,8 @@ export function AlertsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Segredo de assinatura recém-gerado: mostrado uma única vez e só em memória.
+  const [revealed, setRevealed] = useState<{ rule: string; secret: string } | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -82,7 +84,8 @@ export function AlertsPage() {
     setFormError(null);
     setSaving(true);
     try {
-      await alertsApi.create(parsed.data);
+      const created = await alertsApi.create(parsed.data);
+      if (created.signingSecret) setRevealed({ rule: created.name, secret: created.signingSecret });
       form.reset();
       await reload();
     } catch (err) {
@@ -98,6 +101,21 @@ export function AlertsPage() {
     try {
       await fn();
       if (okMessage) setInfo(okMessage);
+      await reload();
+    } catch (err) {
+      setError(message(err));
+    }
+  }
+
+  async function onRotate(r: AlertRuleDto) {
+    const aviso = r.hasSigningSecret
+      ? `Gerar um novo segredo para "${r.name}"? O segredo atual deixa de valer agora e o seu receptor precisa ser atualizado.`
+      : `Gerar o segredo de assinatura de "${r.name}"?`;
+    if (!window.confirm(aviso)) return;
+    setError(null);
+    try {
+      const updated = await alertsApi.rotateSecret(r.id);
+      if (updated.signingSecret) setRevealed({ rule: updated.name, secret: updated.signingSecret });
       await reload();
     } catch (err) {
       setError(message(err));
@@ -141,6 +159,30 @@ export function AlertsPage() {
         </form>
       )}
 
+      {revealed && (
+        <div className="card" role="status" aria-label="Segredo de assinatura">
+          <strong>Segredo de assinatura de "{revealed.rule}"</strong>
+          <p className="muted small">
+            Copie agora e guarde em local seguro. Por segurança, ele não será exibido novamente.
+            Use-o para verificar o cabeçalho <code>X-PulseOps-Signature</code> (ver
+            docs/WEBHOOKS.md).
+          </p>
+          <code className="secret">{revealed.secret}</code>
+          <div className="actions">
+            <button
+              className="btn"
+              type="button"
+              onClick={() => void navigator.clipboard?.writeText(revealed.secret)}
+            >
+              Copiar
+            </button>
+            <button className="btn" type="button" onClick={() => setRevealed(null)}>
+              Já guardei
+            </button>
+          </div>
+        </div>
+      )}
+
       {error && <ErrorMessage message={error} />}
       {info && <p className="muted">{info}</p>}
       {rules === null && !error && <Spinner label="Carregando regras…" />}
@@ -153,7 +195,8 @@ export function AlertsPage() {
                 <strong>{r.name}</strong>
                 <div className="muted small">
                   Webhook · {r.targetPreview} · {r.monitorName ?? 'todos os monitores'} ·{' '}
-                  {r.enabled ? 'ativa' : 'desativada'}
+                  {r.enabled ? 'ativa' : 'desativada'} ·{' '}
+                  {r.hasSigningSecret ? 'assinada' : 'sem assinatura'}
                 </div>
               </div>
               {canWrite && (
@@ -169,6 +212,9 @@ export function AlertsPage() {
                     }
                   >
                     Enviar teste
+                  </button>
+                  <button className="btn" type="button" onClick={() => void onRotate(r)}>
+                    {r.hasSigningSecret ? 'Novo segredo' : 'Gerar segredo'}
                   </button>
                   <button
                     className="btn"

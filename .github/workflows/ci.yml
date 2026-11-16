@@ -29,6 +29,8 @@ jobs:
     env:
       DATABASE_URL: postgresql://postgres:ci-only-password@localhost:5432/pulseops_ci
       JWT_ACCESS_SECRET: ci-only-jwt-secret-with-at-least-32-characters-0123456789
+      # Chave descartável só para os testes (32 bytes em base64).
+      WEBHOOK_ENCRYPTION_KEY: Y2ktb25seS13ZWJob29rLWtleS0zMi1ieXRlcy0hISE=
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

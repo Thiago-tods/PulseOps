@@ -67,6 +67,18 @@ export class AlertsController {
   }
 
   @Roles('OWNER', 'ADMIN')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  @HttpCode(200)
+  @Post(':id/signing-secret')
+  rotateSecret(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<AlertRuleDto> {
+    return this.service.rotateSigningSecret(auth, id, req.ip ?? null);
+  }
+
+  @Roles('OWNER', 'ADMIN')
   @HttpCode(204)
   @Delete(':id')
   async remove(

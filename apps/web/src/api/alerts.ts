@@ -18,6 +18,8 @@ export const alertsApi = {
       method: 'PATCH',
       body: JSON.stringify(input),
     }),
+  rotateSecret: (id: string) =>
+    authedFetch<AlertRuleDto>(`/alert-rules/${id}/signing-secret`, { method: 'POST' }),
   remove: (id: string) => authedFetch<void>(`/alert-rules/${id}`, { method: 'DELETE' }),
   test: (id: string) => authedFetch<NotificationDto>(`/alert-rules/${id}/test`, { method: 'POST' }),
 };

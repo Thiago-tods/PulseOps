@@ -3,11 +3,13 @@ import type {
   CreateMonitorInput,
   IncidentDto,
   MonitorDto,
+  MonitorLimitsDto,
   UpdateMonitorInput,
 } from '@pulseops/shared';
 import { authedFetch } from './client';
 
 export const monitorsApi = {
+  limits: () => authedFetch<MonitorLimitsDto>('/monitors/limits'),
   list: () => authedFetch<MonitorDto[]>('/monitors'),
   checks: (id: string, limit = 20) =>
     authedFetch<CheckDto[]>(`/monitors/${id}/checks?limit=${limit}`),

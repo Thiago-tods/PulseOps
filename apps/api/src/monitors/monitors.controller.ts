@@ -18,6 +18,7 @@ import {
   type CheckDto,
   type CreateMonitorInput,
   type MonitorDto,
+  type MonitorLimitsDto,
   type UpdateMonitorInput,
 } from '@pulseops/shared';
 import type { AuthContext, AuthenticatedRequest } from '../auth/auth.types';
@@ -33,6 +34,12 @@ export class MonitorsController {
   @Get()
   list(@CurrentAuth() auth: AuthContext): Promise<MonitorDto[]> {
     return this.service.list(auth.organizationId);
+  }
+
+  /** Declarada antes de :id para não ser confundida com um identificador. */
+  @Get('limits')
+  limits(): MonitorLimitsDto {
+    return this.service.limits();
   }
 
   @Get(':id')

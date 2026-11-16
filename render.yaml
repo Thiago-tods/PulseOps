@@ -1,5 +1,4 @@
-# Blueprint do Render para a API (plano gratuito). NÃO foi aplicado: criar o serviço exige conta e
-# autorização. Segredos ficam com `sync: false` (o valor é digitado no painel do Render, nunca aqui).
+# Blueprint do Render para a API (plano gratuito). Segredos ficam com `sync: false` (o valor é digitado no painel do Render, nunca aqui).
 #
 # O worker NÃO roda no Render: o plano gratuito não oferece background workers. Ele roda em
 # execução única pelo GitHub Actions (.github/workflows/worker.yml).
@@ -36,5 +35,7 @@ services:
         sync: false # connection string do Neon (com sslmode=require)
       - key: JWT_ACCESS_SECRET
         sync: false # 48+ bytes aleatórios
+      - key: WEBHOOK_ENCRYPTION_KEY
+        sync: false # 32 bytes em base64; cifra os webhooks no banco. Igual ao secret do GitHub Actions
       - key: PROXY_SHARED_SECRET
         sync: false # igual ao do Cloudflare Pages; a API só confia no IP do proxy se o segredo bater

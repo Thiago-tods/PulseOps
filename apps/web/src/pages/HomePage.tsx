@@ -16,7 +16,11 @@ export function HomePage() {
           Entrar
         </Link>
       </div>
-      <p className="muted small">Projeto em fase inicial: nenhuma métrica real disponível ainda.</p>
+      <ul className="muted small">
+        <li>Verificações HTTP com proteção contra SSRF e histórico de 30 dias.</li>
+        <li>Incidentes abertos e resolvidos automaticamente.</li>
+        <li>Alertas por webhook assinado e página de status pública.</li>
+      </ul>
     </section>
   );
 }
