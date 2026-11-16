@@ -17,6 +17,9 @@ const envSchema = z.object({
     .enum(['true', 'false'])
     .default('false')
     .transform((v) => v === 'true'),
+  // Segredo compartilhado com o proxy do Cloudflare Pages (functions/api/[[path]].ts). Quando o proxy
+  // o envia junto do IP real, a API usa esse IP. Sem ele, vale o cálculo por TRUST_PROXY.
+  PROXY_SHARED_SECRET: z.string().min(32).optional(),
   TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(0),
   DATABASE_URL: z.string().optional(),
   DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(5),

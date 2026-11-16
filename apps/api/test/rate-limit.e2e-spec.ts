@@ -20,7 +20,7 @@ async function createApp(env: Record<string, string> = {}): Promise<INestApplica
   }
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication();
-  setupApp(app, ['http://localhost:5173'], Number(env.TRUST_PROXY ?? 0));
+  setupApp(app, ['http://localhost:5173'], Number(env.TRUST_PROXY ?? 0), env.PROXY_SHARED_SECRET);
   await app.init();
   for (const [k, v] of Object.entries(previous)) {
     if (v === undefined) delete process.env[k];
@@ -123,5 +123,73 @@ describe('Diagnóstico do IP do cliente (GET /health/client)', () => {
     } finally {
       await app.close();
     }
+  });
+});
+
+describe('IP do cliente atrás do proxy do Cloudflare Pages (segredo compartilhado)', () => {
+  const SECRET = 'segredo-compartilhado-de-teste-com-mais-de-32-caracteres';
+  let app: INestApplication;
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_IN_TEST = 'true';
+    // Imita o Render: 3 saltos confiáveis; o Pages envia o IP real em cabeçalho próprio.
+    app = await createApp({
+      TRUST_PROXY: '3',
+      PROXY_SHARED_SECRET: SECRET,
+      DEBUG_CLIENT_IP: 'true',
+    });
+  });
+  afterAll(async () => {
+    delete process.env.RATE_LIMIT_IN_TEST;
+    await app.close();
+  });
+
+  const viaPages = (ip: string) => ({
+    'x-pulseops-proxy-secret': SECRET,
+    'x-pulseops-client-ip': ip,
+    // Cadeia que o Render veria com o Worker no meio (o IP do Worker NÃO é o do cliente).
+    'x-forwarded-for': `${ip}, 104.28.0.1, 104.22.0.2`,
+  });
+
+  it('com o segredo certo, usa o IP enviado pelo proxy como IP do cliente', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/health/client')
+      .set(viaPages('203.0.113.50'))
+      .expect(200);
+    expect(res.body.ipUsadoPelaApi).toBe('203.0.113.50');
+    // Os cabeçalhos do proxy são removidos: o segredo nunca aparece adiante.
+    expect(JSON.stringify(res.body)).not.toContain(SECRET);
+    expect(res.body.outrosCabecalhosDeProxy).not.toContain('x-pulseops-proxy-secret');
+  });
+
+  it('com o segredo ERRADO ignora o IP informado e cai no cálculo normal do Express', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/v1/health/client')
+      .set({
+        ...viaPages('203.0.113.51'),
+        'x-pulseops-proxy-secret': 'errado'.repeat(8),
+        // Cadeia real (do ponto de vista do Express) com um cliente diferente do IP forjado.
+        'x-forwarded-for': '198.51.100.200, 104.28.0.1, 104.22.0.2',
+      })
+      .expect(200);
+    expect(res.body.ipUsadoPelaApi).toBe('198.51.100.200'); // TRUST_PROXY=3, como em acesso direto
+    expect(res.body.ipUsadoPelaApi).not.toBe('203.0.113.51'); // o IP forjado no cabeçalho foi ignorado
+  });
+
+  it('cada usuário do Pages tem o seu próprio limite (não compartilham o IP do Worker)', async () => {
+    for (let i = 0; i < 11; i++) await attempt(app, viaPages('203.0.113.60'));
+    expect(await attempt(app, viaPages('203.0.113.60'))).toBe(429);
+    // Outro usuário, pelo mesmo Worker e mesma cadeia de proxies, não é afetado.
+    expect(await attempt(app, viaPages('203.0.113.61'))).not.toBe(429);
+  });
+
+  it('quem acessa o Render direto e forja o cabeçalho de IP SEM o segredo não burla o limite', async () => {
+    const statuses: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      statuses.push(await attempt(app, { 'x-pulseops-client-ip': `198.51.100.${i + 1}` }));
+    }
+    // Todos caem no mesmo balde (o IP real da conexão): bloqueia a partir da 11ª.
+    expect(statuses.slice(0, 10).every((s) => s !== 429)).toBe(true);
+    expect(statuses.slice(10)).toEqual([429, 429]);
   });
 });

@@ -107,7 +107,7 @@ mantém isso estável e cabe no 1 GB.
 ## Variáveis de ambiente
 
 Ver `.env.production.example`. Resumo: API (`NODE_ENV=production`, `DATABASE_URL`, `JWT_ACCESS_SECRET`,
-`CORS_ORIGINS`, `TRUST_PROXY`, `DB_POOL_MAX`, `MIN_MONITOR_INTERVAL_SEC`), Pages (`API_ORIGIN`), Actions
+`CORS_ORIGINS`, `TRUST_PROXY`, `DB_POOL_MAX`, `MIN_MONITOR_INTERVAL_SEC`), Pages (`API_ORIGIN`, `PROXY_SHARED_SECRET`), Actions
 (secret `DATABASE_URL`). Em produção a API **recusa iniciar** sem `DATABASE_URL` e `JWT_ACCESS_SECRET`, ou com
 `CORS_ORIGINS` que não seja HTTPS ou que aponte para localhost.
 
@@ -155,11 +155,16 @@ foi desligado e `/health/client` responde 404.
 
 O limitador agora tem testes próprios (`rate-limit.e2e-spec.ts`, ligado com `RATE_LIMIT_IN_TEST=true`).
 
-**Atenção ao Cloudflare Pages.** O `3` vale só para acesso **direto** ao Render. Com o proxy do Pages na frente, a
-cadeia ganha o IP de saída do Worker e o `3` passaria a usar um IP compartilhado por todos os usuários. Antes de
-ligar o Pages é preciso que a Function envie o IP real em um cabeçalho próprio junto de um segredo compartilhado
-que a API valide (assim ninguém forja o cabeçalho acessando o Render diretamente). Isso ainda NÃO está implementado.
-**Não divulgue a URL da API nem ligue o Pages antes disso.**
+**Com o proxy do Cloudflare Pages.** O `3` vale só para acesso **direto** ao Render. Com o Pages na frente a cadeia
+ganha o IP de saída do Worker, e o `3` passaria a usar um IP compartilhado por todos os usuários. Por isso a
+Function envia o IP real em `x-pulseops-client-ip` junto de `x-pulseops-proxy-secret`, e a API
+(`apps/api/src/common/client-ip.ts`) só confia nesse IP se o segredo bater (comparação em tempo constante). Os dois
+cabeçalhos são sempre removidos antes do resto da aplicação. Quem acessa o Render diretamente, com o cabeçalho
+forjado e sem o segredo, cai no cálculo por `TRUST_PROXY=3` e não burla o limite. A Function **falha fechada**: sem
+`PROXY_SHARED_SECRET` (mínimo 32 caracteres) ela não encaminha nada.
+
+O segredo (`PROXY_SHARED_SECRET`) precisa ser **igual** no Render e no Cloudflare Pages (Secret). Para trocá-lo,
+altere os dois e faça o deploy; durante a troca o IP volta ao cálculo por `TRUST_PROXY` (sem derrubar o serviço).
 
 ## Incertezas que só o deploy real resolve
 

@@ -10,6 +10,8 @@
 
 interface Env {
   API_ORIGIN?: string;
+  /** Segredo compartilhado com a API (PROXY_SHARED_SECRET no Render). Obrigatório. */
+  PROXY_SHARED_SECRET?: string;
 }
 
 const MAX_BODY_BYTES = 1_048_576; // 1 MiB: a API não precisa de mais que isso
@@ -28,6 +30,9 @@ const STRIPPED_REQUEST_HEADERS = [
   'cf-connecting-ip',
   'true-client-ip',
   'content-length',
+  // Cabeçalhos próprios do proxy: se o cliente enviar, são descartados e refeitos abaixo.
+  'x-pulseops-client-ip',
+  'x-pulseops-proxy-secret',
 ];
 
 export class ProxyRejection extends Error {
@@ -43,6 +48,7 @@ export class ProxyRejection extends Error {
 export async function buildUpstreamRequest(
   request: Request,
   apiOrigin: string | undefined,
+  proxySecret: string | undefined,
 ): Promise<Request> {
   let origin: URL;
   try {
@@ -51,6 +57,10 @@ export async function buildUpstreamRequest(
     throw new ProxyRejection(500, 'Proxy não configurado');
   }
   if (origin.protocol !== 'https:' || origin.pathname !== '/') {
+    throw new ProxyRejection(500, 'Proxy não configurado');
+  }
+  // Falha fechada: sem o segredo a API não distinguiria os usuários e usaria um IP compartilhado.
+  if (!proxySecret || proxySecret.length < 32) {
     throw new ProxyRejection(500, 'Proxy não configurado');
   }
   if (!ALLOWED_METHODS.has(request.method)) {
@@ -69,7 +79,12 @@ export async function buildUpstreamRequest(
   for (const name of STRIPPED_REQUEST_HEADERS) headers.delete(name);
   // O IP real vem do Cloudflare e sobrescreve qualquer valor enviado pelo cliente.
   const clientIp = request.headers.get('cf-connecting-ip');
-  if (clientIp) headers.set('x-forwarded-for', clientIp);
+  if (clientIp) {
+    headers.set('x-forwarded-for', clientIp);
+    // IP real em cabeçalho próprio + segredo: a API só confia nele se o segredo bater.
+    headers.set('x-pulseops-client-ip', clientIp);
+  }
+  headers.set('x-pulseops-proxy-secret', proxySecret);
 
   const target = new URL(`${incoming.pathname}${incoming.search}`, origin);
   let body: ArrayBuffer | undefined;
@@ -90,7 +105,11 @@ function problem(status: number, message: string): Response {
 
 export async function onRequest(context: { request: Request; env: Env }): Promise<Response> {
   try {
-    const upstream = await buildUpstreamRequest(context.request, context.env.API_ORIGIN);
+    const upstream = await buildUpstreamRequest(
+      context.request,
+      context.env.API_ORIGIN,
+      context.env.PROXY_SHARED_SECRET,
+    );
     return await fetch(upstream, { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
   } catch (err) {
     if (err instanceof ProxyRejection) return problem(err.status, err.message);

@@ -15,7 +15,7 @@ async function bootstrap(): Promise<void> {
       logLevels: [...LEVELS.slice(0, LEVELS.indexOf(env.LOG_LEVEL) + 1)],
     }),
   });
-  setupApp(app, env.corsOrigins, env.TRUST_PROXY);
+  setupApp(app, env.corsOrigins, env.TRUST_PROXY, env.PROXY_SHARED_SECRET);
   await app.listen(env.API_PORT, env.API_HOST);
 }
 
