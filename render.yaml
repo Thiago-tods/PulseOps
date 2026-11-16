@@ -1,0 +1,38 @@
+# Blueprint do Render para a API (plano gratuito). NÃO foi aplicado: criar o serviço exige conta e
+# autorização. Segredos ficam com `sync: false` (o valor é digitado no painel do Render, nunca aqui).
+#
+# O worker NÃO roda no Render: o plano gratuito não oferece background workers. Ele roda em
+# execução única pelo GitHub Actions (.github/workflows/worker.yml).
+services:
+  - type: web
+    name: pulseops-api
+    runtime: node
+    plan: free
+    # Compila só o que a API precisa (inclui o prisma generate do pacote db).
+    buildCommand: npm ci --include=dev && npm run build -w @pulseops/shared -w @pulseops/http-guard -w @pulseops/db -w @pulseops/api
+    startCommand: node apps/api/dist/main.js
+    healthCheckPath: /api/v1/health/ready
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 26.13.0 # confirme no Render se esta versão está disponível; ver docs/DEPLOYMENT.md
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: API_PORT
+        value: 10000
+      - key: LOG_LEVEL
+        value: info
+      - key: TRUST_PROXY
+        value: 2 # proxy do Render + Cloudflare (ver docs/DEPLOYMENT.md antes de alterar)
+      - key: DB_POOL_MAX
+        value: 3
+      - key: MIN_MONITOR_INTERVAL_SEC
+        value: 900 # igual à frequência do worker no Neon gratuito (docs/DEPLOYMENT.md)
+      - key: CORS_ORIGINS
+        sync: false # ex.: https://pulseops.pages.dev
+      - key: DATABASE_URL
+        sync: false # connection string do Neon (com sslmode=require)
+      - key: JWT_ACCESS_SECRET
+        sync: false # 48+ bytes aleatórios

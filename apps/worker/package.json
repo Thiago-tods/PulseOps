@@ -1,0 +1,24 @@
+{
+  "name": "@pulseops/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "node --env-file-if-exists=../../.env dist/main.js",
+    "dev": "npm run build && npm run start",
+    "test": "jest --passWithNoTests",
+    "test:int": "node --experimental-vm-modules ../../node_modules/jest/bin/jest.js --config jest.int.config.js --passWithNoTests"
+  },
+  "dependencies": {
+    "@pulseops/db": "0.1.0",
+    "@pulseops/http-guard": "0.1.0",
+    "@pulseops/shared": "0.1.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "jest": "^30.5.2",
+    "ts-jest": "^29.4.15"
+  }
+}

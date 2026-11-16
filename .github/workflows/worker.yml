@@ -1,0 +1,60 @@
+name: Worker (verificações)
+
+# Executa o worker em modo "execução única": agenda o que venceu, roda as verificações,
+# envia as notificações e encerra. É a alternativa gratuita a um worker 24/7
+# (o Render não oferece workers no plano gratuito).
+#
+# Frequência: a cada 15 min (decisão para caber nos limites gratuitos do Neon; ver docs/DEPLOYMENT.md).
+# Sem o secret DATABASE_URL o job só emite um aviso e não faz nada, então o agendamento é inofensivo
+# até você criar o secret (Settings > Secrets and variables > Actions).
+# Repositório público: minutos do Actions gratuitos. O GitHub desativa agendamentos após 60 dias sem
+# atividade no repositório; basta um commit ou reativar em Actions.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '7,22,37,52 * * * *' # a cada 15 min, fora do minuto 0 (horário de maior atraso)
+
+# Nunca duas execuções ao mesmo tempo (o lease da fila já protege, mas evita desperdício).
+concurrency:
+  group: pulseops-worker
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - name: Verificar secret
+        if: ${{ env.DATABASE_URL == '' }}
+        run: echo "::warning::Secret DATABASE_URL não configurado; nada a executar."
+
+      - uses: actions/checkout@v4
+        if: ${{ env.DATABASE_URL != '' }}
+
+      - uses: actions/setup-node@v4
+        if: ${{ env.DATABASE_URL != '' }}
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Instalar e compilar
+        if: ${{ env.DATABASE_URL != '' }}
+        run: |
+          npm ci
+          npm run build -w @pulseops/shared -w @pulseops/http-guard -w @pulseops/db -w @pulseops/worker
+
+      - name: Executar o worker (execução única)
+        if: ${{ env.DATABASE_URL != '' }}
+        env:
+          NODE_ENV: production
+          WORKER_MODE: once
+          SCHEDULER_LEAD_SEC: '90' # compensa atraso do cron
+          ONCE_MAX_DURATION_SEC: '300'
+          DB_POOL_MAX: '3'
+          LOG_LEVEL: info
+        run: node apps/worker/dist/main.js

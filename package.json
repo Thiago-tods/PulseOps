@@ -1,0 +1,42 @@
+{
+  "name": "pulseops",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PulseOps - monitoramento de APIs e gestão de incidentes",
+  "engines": {
+    "node": ">=24",
+    "npm": ">=11"
+  },
+  "workspaces": [
+    "packages/shared",
+    "packages/http-guard",
+    "packages/db",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run build -w @pulseops/shared -w @pulseops/http-guard -w @pulseops/db && npm run typecheck --workspaces --if-present",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run test --workspaces --if-present",
+    "db:validate": "npm run validate -w @pulseops/db",
+    "db:generate": "npm run generate -w @pulseops/db",
+    "dev:api": "npm run dev -w @pulseops/api",
+    "dev:worker": "npm run dev -w @pulseops/worker",
+    "dev:web": "npm run dev -w @pulseops/web",
+    "test:db": "npm run test:e2e -w @pulseops/api && npm run test:int -w @pulseops/worker",
+    "db:migrate:deploy": "npm run migrate:deploy -w @pulseops/db"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.19.2",
+    "eslint": "^10.15.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.14.0",
+    "prettier": "^3.10.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.2"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "@pulseops/http-guard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Validação de alvos e requisições HTTP seguras contra SSRF",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "vitest": "^5.1.0"
+  }
+}
